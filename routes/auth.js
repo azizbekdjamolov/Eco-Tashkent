@@ -23,7 +23,8 @@ function publicUser(u) {
     tuman: u.tuman,
     rol: u.rol,
     reyting: u.reyting,
-    ngo_verified: u.ngo_verified
+    ngo_verified: u.ngo_verified,
+    telegram_bog_langan: !!u.telegram_chat_id
   };
 }
 

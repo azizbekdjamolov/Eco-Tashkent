@@ -6,6 +6,33 @@ document.getElementById('avatar').textContent = initials(user.ism);
 document.getElementById('p-ism').textContent = user.ism;
 document.getElementById('p-meta').textContent = `${user.tuman || 'Tuman ko\'rsatilmagan'} · ${user.telefon || user.email || ''}`;
 
+// ---- Telegram bog'lanish holati ----
+const tgStatusPill = document.getElementById('tg-status-pill');
+const tgConnectText = document.getElementById('tg-connect-text');
+const tgConnectBtn = document.getElementById('tg-connect-btn');
+const tgRefreshBtn = document.getElementById('tg-refresh-btn');
+
+async function loadTelegramStatus() {
+  tgStatusPill.textContent = 'Tekshirilmoqda...';
+  try {
+    const me = await api('/auth/me');
+    setSession(getToken(), me); // keep cached user in sync
+    if (me.telegram_bog_langan) {
+      tgStatusPill.textContent = 'Ulangan ✅';
+      tgConnectText.textContent = "Hisobingiz @EcoTashkent_uzBot ga bog'langan. E'lonlar, xabarlar va kirish kodlari Telegram orqali keladi.";
+      tgConnectBtn.style.display = 'none';
+    } else {
+      tgStatusPill.textContent = 'Ulanmagan';
+      tgConnectText.textContent = "Hisobingizni @EcoTashkent_uzBot bilan bog'lang: botga /start bosing va shu profilingizdagi telefon raqamini yuboring — hisobingiz avtomatik bog'lanadi.";
+      tgConnectBtn.style.display = '';
+    }
+  } catch (e) {
+    tgStatusPill.textContent = 'Noma\'lum';
+  }
+}
+tgRefreshBtn.addEventListener('click', loadTelegramStatus);
+loadTelegramStatus();
+
 const tabContent = document.getElementById('tab-content');
 const tabs = document.querySelectorAll('.tab-btn');
 
