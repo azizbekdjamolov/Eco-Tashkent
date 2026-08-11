@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ekologik xarita — Eco Tashkent</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+<header class="topbar"><div id="nav-mount"></div></header>
+
+<div class="map-page-layout">
+  <aside class="map-sidebar">
+    <span class="eyebrow">Ekologik xarita</span>
+    <h2 style="font-size:1.3rem;margin:8px 0 14px;">Qayta ishlash punktlari</h2>
+    <input type="text" id="material-filter" placeholder="Material bo'yicha filtr (masalan: plastik)" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--line);margin-bottom:14px;">
+    <div id="points-list"></div>
+  </aside>
+  <div id="full-map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/api.js"></script>
+<script src="js/nav.js"></script>
+<script src="js/map.js"></script>
+</body>
+</html>
