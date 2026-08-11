@@ -22,5 +22,19 @@ services:
         generateValue: true
       - key: GOOGLE_CLIENT_ID
         sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: BOT_USERNAME
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       - key: NODE_VERSION
         value: 20.11.0

@@ -17,44 +17,77 @@
     <div class="auth-mode-toggle">
       <button type="button" id="mode-google">🔵 Google</button>
       <button type="button" id="mode-telegram">📲 Telegram</button>
-      <button type="button" id="mode-password" class="active">✉️ Email</button>
+      <button type="button" id="mode-email" class="active">✉️ Email</button>
     </div>
 
     <div class="form-error" id="err"></div>
+    <div class="form-success" id="ok"></div>
 
-    <div id="google-login-block" style="display:none;text-align:center;padding:10px 0;">
+    <!-- ---- 1) Google ---- -->
+    <div id="google-block" style="display:none;text-align:center;padding:10px 0;">
       <div id="g_id_button_container" style="display:flex;justify-content:center;"></div>
       <p id="google-unavailable" style="display:none;color:var(--muted);font-size:0.85rem;margin-top:10px;">
         Google bilan kirish hozircha sozlanmagan.
       </p>
     </div>
 
-    <form id="login-form">
-      <div class="field">
-        <label for="identifier">Telefon yoki email</label>
-        <input type="text" id="identifier" required placeholder="+998901234567 yoki email@mail.com">
-      </div>
-      <div class="field">
-        <label for="password">Parol</label>
-        <input type="password" id="password" required placeholder="••••••••">
-      </div>
-      <button class="btn btn-primary btn-block" type="submit">Kirish</button>
-    </form>
-
-    <form id="tg-login-form" style="display:none;">
+    <!-- ---- 2) Telegram: telefon -> bot orqali kod -> tasdiqlash ---- -->
+    <div id="telegram-block" style="display:none;">
       <div class="field">
         <label for="tg-telefon">Telefon raqamingiz</label>
         <input type="text" id="tg-telefon" placeholder="+998901234567">
-        <div class="field-hint">Bu raqam Telegram botga (@EcoTashkent_uzBot) oldindan bog'langan bo'lishi kerak.</div>
+        <div class="field-hint" id="tg-hint">
+          Bu raqam avval Telegram botga bog'langan bo'lishi kerak — botda
+          <b>/start</b> bosib, telefon raqamingizni yuboring.
+        </div>
       </div>
-      <button class="btn btn-primary btn-block" type="button" id="send-code-btn">Kodni Telegramga yuborish</button>
+      <button class="btn btn-primary btn-block" type="button" id="tg-send-btn">Kodni Telegramga yuborish</button>
 
-      <div class="field" id="code-field" style="display:none;margin-top:16px;">
-        <label for="tg-code">Telegramga kelgan kod</label>
-        <input type="text" id="tg-code" inputmode="numeric" maxlength="6" placeholder="000000">
-        <button class="btn btn-primary btn-block" type="submit" style="margin-top:10px;">Tasdiqlash va kirish</button>
+      <form id="tg-form">
+        <div class="field" id="tg-code-field" style="display:none;margin-top:16px;">
+          <label for="tg-code">Telegramga kelgan kod</label>
+          <input type="text" id="tg-code" inputmode="numeric" maxlength="6" placeholder="000000">
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:10px;">Tasdiqlash va kirish</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- ---- 3) Email: parol yoki bir martalik kod ---- -->
+    <div id="email-block">
+      <div class="type-toggle" style="margin-bottom:18px;">
+        <button type="button" id="email-sub-password" class="active">Parol bilan</button>
+        <button type="button" id="email-sub-code">Kod bilan</button>
       </div>
-    </form>
+
+      <form id="login-form">
+        <div class="field">
+          <label for="identifier">Telefon yoki email</label>
+          <input type="text" id="identifier" required placeholder="+998901234567 yoki email@mail.com">
+        </div>
+        <div class="field">
+          <label for="password">Parol</label>
+          <input type="password" id="password" required placeholder="••••••••">
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Kirish</button>
+      </form>
+
+      <div id="email-code-block" style="display:none;">
+        <div class="field">
+          <label for="ec-email">Email manzilingiz</label>
+          <input type="email" id="ec-email" placeholder="email@mail.com">
+          <div class="field-hint">Hisobingiz bo'lmasa ham bo'ladi — kod bilan birinchi marta kirganingizda hisob avtomatik yaratiladi.</div>
+        </div>
+        <button class="btn btn-primary btn-block" type="button" id="ec-send-btn">Kodni emailga yuborish</button>
+
+        <form id="ec-form">
+          <div class="field" id="ec-code-field" style="display:none;margin-top:16px;">
+            <label for="ec-code">Emailga kelgan kod</label>
+            <input type="text" id="ec-code" inputmode="numeric" maxlength="6" placeholder="000000">
+            <button class="btn btn-primary btn-block" type="submit" style="margin-top:10px;">Tasdiqlash va kirish</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <p style="margin-top:16px;text-align:center;font-size:0.9rem;">Hisobingiz yo'qmi? <a href="register.html" style="color:var(--brand);font-weight:700;">Ro'yxatdan o'ting</a></p>
   </div>
@@ -67,13 +100,177 @@
 renderNav('');
 
 const err = document.getElementById('err');
-function showErr(msg) { err.textContent = msg; err.classList.add('show'); }
-function clearErr() { err.classList.remove('show'); }
+const ok = document.getElementById('ok');
+function showErr(msg) { ok.classList.remove('show'); err.textContent = msg; err.classList.add('show'); }
+function showOk(msg) { err.classList.remove('show'); ok.textContent = msg; ok.classList.add('show'); }
+function clearMsgs() { err.classList.remove('show'); ok.classList.remove('show'); }
 
-// ---- Mode toggle (Google / Telegram / Email) ----
+// ---- Tashqi (top) mode toggle: Google / Telegram / Email ----
 const modeGoogle = document.getElementById('mode-google');
-const modePassword = document.getElementById('mode-password');
 const modeTelegram = document.getElementById('mode-telegram');
-const googleBlock = document.getElementById('google-login-block');
+const modeEmail = document.getElementById('mode-email');
+const googleBlock = document.getElementById('google-block');
+const telegramBlock = document.getElementById('telegram-block');
+const emailBlock = document.getElementById('email-block');
+
+function setMode(mode) {
+  [modeGoogle, modeTelegram, modeEmail].forEach(b => b.classList.remove('active'));
+  googleBlock.style.display = 'none';
+  telegramBlock.style.display = 'none';
+  emailBlock.style.display = 'none';
+  clearMsgs();
+  if (mode === 'google') { modeGoogle.classList.add('active'); googleBlock.style.display = ''; }
+  if (mode === 'telegram') { modeTelegram.classList.add('active'); telegramBlock.style.display = ''; }
+  if (mode === 'email') { modeEmail.classList.add('active'); emailBlock.style.display = ''; }
+}
+modeGoogle.addEventListener('click', () => setMode('google'));
+modeTelegram.addEventListener('click', () => setMode('telegram'));
+modeEmail.addEventListener('click', () => setMode('email'));
+setMode('email');
+
+// ---- Ichki (email bo'limi ichidagi) sub-toggle: Parol / Kod ----
+const emailSubPassword = document.getElementById('email-sub-password');
+const emailSubCode = document.getElementById('email-sub-code');
 const loginForm = document.getElementById('login-form');
-const tgLoginForm = document.getElementById('tg-login-form');
+const emailCodeBlock = document.getElementById('email-code-block');
+
+function setEmailSubMode(mode) {
+  clearMsgs();
+  if (mode === 'password') {
+    emailSubPassword.classList.add('active'); emailSubCode.classList.remove('active');
+    loginForm.style.display = ''; emailCodeBlock.style.display = 'none';
+  } else {
+    emailSubCode.classList.add('active'); emailSubPassword.classList.remove('active');
+    loginForm.style.display = 'none'; emailCodeBlock.style.display = '';
+  }
+}
+emailSubPassword.addEventListener('click', () => setEmailSubMode('password'));
+emailSubCode.addEventListener('click', () => setEmailSubMode('code'));
+
+// ---- 0) Sayt sozlamalarini olish (Google client id, bot username, holat) ----
+let siteConfig = { googleClientId: null, telegramActive: false, botUsername: null };
+
+// ---- 1) Google ----
+async function handleGoogleCredential(response) {
+  clearMsgs();
+  try {
+    const data = await api('/auth/google', { method: 'POST', body: { credential: response.credential } });
+    setSession(data.token, data.user);
+    window.location.href = 'index.html';
+  } catch (e2) {
+    showErr(e2.message);
+  }
+}
+function initGoogleButton() {
+  if (!siteConfig.googleClientId) {
+    document.getElementById('google-unavailable').style.display = '';
+    return;
+  }
+  google.accounts.id.initialize({ client_id: siteConfig.googleClientId, callback: handleGoogleCredential });
+  google.accounts.id.renderButton(document.getElementById('g_id_button_container'), {
+    theme: 'outline', size: 'large', shape: 'pill', width: 280
+  });
+}
+
+// ---- 2) Telegram: kod so'rash / tasdiqlash ----
+const tgSendBtn = document.getElementById('tg-send-btn');
+const tgCodeField = document.getElementById('tg-code-field');
+tgSendBtn.addEventListener('click', async () => {
+  clearMsgs();
+  const telefon = document.getElementById('tg-telefon').value.trim();
+  if (!telefon) { showErr('Telefon raqamini kiriting'); return; }
+  tgSendBtn.disabled = true; tgSendBtn.textContent = 'Yuborilmoqda...';
+  try {
+    await api('/auth/request-code', { method: 'POST', body: { telefon } });
+    tgCodeField.style.display = '';
+    showOk('Kod Telegram orqali yuborildi ✅');
+    tgSendBtn.textContent = 'Kod qayta yuborish';
+  } catch (e2) {
+    showErr(e2.message);
+    tgSendBtn.textContent = 'Kodni Telegramga yuborish';
+  }
+  tgSendBtn.disabled = false;
+});
+
+document.getElementById('tg-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearMsgs();
+  const telefon = document.getElementById('tg-telefon').value.trim();
+  const code = document.getElementById('tg-code').value.trim();
+  if (!code) { showErr('Kodni kiriting'); return; }
+  try {
+    const data = await api('/auth/verify-code', { method: 'POST', body: { telefon, code } });
+    setSession(data.token, data.user);
+    window.location.href = 'index.html';
+  } catch (e2) {
+    showErr(e2.message);
+  }
+});
+
+// ---- 3a) Email + parol ----
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearMsgs();
+  const identifier = document.getElementById('identifier').value.trim();
+  const password = document.getElementById('password').value;
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: { identifier, password } });
+    setSession(data.token, data.user);
+    window.location.href = 'index.html';
+  } catch (e2) {
+    showErr(e2.message);
+  }
+});
+
+// ---- 3b) Email kodi ----
+const ecSendBtn = document.getElementById('ec-send-btn');
+const ecCodeField = document.getElementById('ec-code-field');
+ecSendBtn.addEventListener('click', async () => {
+  clearMsgs();
+  const email = document.getElementById('ec-email').value.trim();
+  if (!email) { showErr('Email manzilini kiriting'); return; }
+  ecSendBtn.disabled = true; ecSendBtn.textContent = 'Yuborilmoqda...';
+  try {
+    await api('/auth/request-email-code', { method: 'POST', body: { email } });
+    ecCodeField.style.display = '';
+    showOk('Kod emailga yuborildi ✅ (agar topilmasa, spam papkasini tekshiring)');
+    ecSendBtn.textContent = 'Kod qayta yuborish';
+  } catch (e2) {
+    showErr(e2.message);
+    ecSendBtn.textContent = 'Kodni emailga yuborish';
+  }
+  ecSendBtn.disabled = false;
+});
+
+document.getElementById('ec-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearMsgs();
+  const email = document.getElementById('ec-email').value.trim();
+  const code = document.getElementById('ec-code').value.trim();
+  if (!code) { showErr('Kodni kiriting'); return; }
+  try {
+    const data = await api('/auth/verify-email-code', { method: 'POST', body: { email, code } });
+    setSession(data.token, data.user);
+    window.location.href = 'index.html';
+  } catch (e2) {
+    showErr(e2.message);
+  }
+});
+
+// ---- Ishga tushirish ----
+(async function boot() {
+  try {
+    siteConfig = await api('/auth/config');
+  } catch (e) { /* konfiguratsiya olinmadi — standart qiymatlar bilan davom etamiz */ }
+  initGoogleButton();
+  if (siteConfig.botUsername) {
+    document.getElementById('tg-hint').innerHTML =
+      `Bu raqam avval <a href="https://t.me/${siteConfig.botUsername}" target="_blank" style="color:var(--brand);font-weight:700;">@${siteConfig.botUsername}</a> ga bog'langan bo'lishi kerak — botda <b>/start</b> bosib, telefon raqamingizni yuboring.`;
+  } else if (!siteConfig.telegramActive) {
+    document.getElementById('tg-hint').innerHTML =
+      "Telegram orqali kirish hozircha serverda sozlanmagan.";
+  }
+})();
+</script>
+</body>
+</html>

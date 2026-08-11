@@ -4,9 +4,15 @@ const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { pool } = require('../db');
 const { JWT_SECRET, requireAuth } = require('../middleware/auth');
+const { sendLoginCode: sendTelegramCode, isBotActive } = require('../services/telegramBot');
+const { sendLoginCodeEmail } = require('../services/email');
 
 const router = express.Router();
 const googleClient = process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
+
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
 function signToken(user) {
   return jwt.sign(
@@ -85,12 +91,10 @@ router.post('/login', async (req, res) => {
 });
 
 
-// Telegram orqali kirish kodi: foydalanuvchi avval botga /start bosib
-// (mavjud botdagi /link oqimi orqali) o'z raqamini telegram_chat_id bilan
-// bog'lagan bo'lishi kerak. Bu yerda hech qanday yangi bot integratsiyasi
-// kerak emas — kod shunchaki mavjud "notifications" navbatiga qo'shiladi,
-// botning o'zi uni /bot/notifications/pending orqali olib, foydalanuvchiga
-// yuboradi (u xuddi boshqa bildirishnomalar kabi ishlaydi).
+// Telegram orqali kirish kodi: foydalanuvchi avval botga /start bosib o'z
+// raqamini yuborgan (shu bilan telegram_chat_id profiliga bog'langan)
+// bo'lishi kerak. Bot shu server jarayonining ichida ishlaydi
+// (services/telegramBot.js), shuning uchun kod darhol, navbatsiz yuboriladi.
 router.post('/request-code', async (req, res) => {
   try {
     const { telefon } = req.body;
@@ -99,18 +103,23 @@ router.post('/request-code', async (req, res) => {
     const user = userRes.rows[0];
     if (!user) return res.status(404).json({ error: 'Bu raqam bilan foydalanuvchi topilmadi' });
     if (!user.telegram_chat_id) {
-      return res.status(409).json({ error: "Hisobingiz Telegram botiga bog'lanmagan. Avval @EcoTashkent_uzBot ga /start bosing va telefon raqamingizni yuboring." });
+      return res.status(409).json({ error: "Hisobingiz Telegram botiga bog'lanmagan. Avval botga /start bosing va telefon raqamingizni yuboring." });
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = generateCode();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     await pool.query(
       'INSERT INTO login_codes (user_id, code, expires_at) VALUES ($1, $2, $3)',
       [user.id, code, expiresAt]
     );
-    await pool.query(
-      `INSERT INTO notifications (user_id, turi, matn) VALUES ($1, 'login_code', $2)`,
-      [user.id, `Eco Tashkent saytiga kirish kodingiz: ${code}\nKod 5 daqiqa amal qiladi.`]
-    );
+    const sent = await sendTelegramCode(user.telegram_chat_id, code);
+    if (!sent) {
+      // Bot vaqtincha yuborolmadi (masalan, foydalanuvchi botni bloklagan) —
+      // barchbir kodni navbatga ham qo'yamiz, keyinroq qayta urinish uchun.
+      await pool.query(
+        `INSERT INTO notifications (user_id, turi, matn) VALUES ($1, 'login_code', $2)`,
+        [user.id, `Eco Tashkent saytiga kirish kodingiz: ${code}\nKod 5 daqiqa amal qiladi.`]
+      );
+    }
     res.json({ ok: true, message: 'Kod Telegram orqali yuborildi' });
   } catch (e) {
     console.error(e);
@@ -140,10 +149,72 @@ router.post('/verify-code', async (req, res) => {
   }
 });
 
-// Login sahifasi Google tugmasini ko'rsatishdan oldin shu yerdan client_id
-// olib keladi (agar sozlanmagan bo'lsa, tugma butunlay yashiriladi).
+// Email orqali kirish kodi: Telegramdan farqli o'laroq, bu yerda oldindan
+// hech narsa bog'lash shart emas — foydalanuvchi hali ro'yxatdan o'tmagan
+// bo'lsa ham, shu email bilan hisobi shu yerning o'zida (parolsiz)
+// avtomatik yaratiladi va kod yuboriladi (bulldrop.uz kabi saytlardagi
+// "email orqali kirish/ro'yxatdan o'tish" oqimiga o'xshash).
+router.post('/request-email-code', async (req, res) => {
+  try {
+    const { email, ism } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email shart' });
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    let userRes = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+    let user = userRes.rows[0];
+    if (!user) {
+      const created = await pool.query(
+        `INSERT INTO users (ism, email, password_hash) VALUES ($1, $2, NULL) RETURNING *`,
+        [ism || normalizedEmail.split('@')[0], normalizedEmail]
+      );
+      user = created.rows[0];
+    }
+
+    const code = generateCode();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    await pool.query(
+      'INSERT INTO login_codes (user_id, code, expires_at) VALUES ($1, $2, $3)',
+      [user.id, code, expiresAt]
+    );
+    await sendLoginCodeEmail(normalizedEmail, code);
+    res.json({ ok: true, message: 'Kod emailga yuborildi', isNewUser: !userRes.rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server xatosi' });
+  }
+});
+
+router.post('/verify-email-code', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) return res.status(400).json({ error: 'Email va kod shart' });
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: 'Foydalanuvchi topilmadi' });
+    const codeRes = await pool.query(
+      `SELECT * FROM login_codes WHERE user_id = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
+       ORDER BY yaratilgan_sana DESC LIMIT 1`,
+      [user.id, code]
+    );
+    const loginCode = codeRes.rows[0];
+    if (!loginCode) return res.status(401).json({ error: "Kod noto'g'ri yoki muddati o'tgan" });
+    await pool.query('UPDATE login_codes SET used = TRUE WHERE id = $1', [loginCode.id]);
+    res.json({ token: signToken(user), user: publicUser(user) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server xatosi' });
+  }
+});
+
+// Login/ro'yxatdan o'tish sahifalari shu yerdan qaysi kirish usullari
+// sozlanganini bilib oladi (Google tugmasi, Telegram bo'limi va h.k.).
 router.get('/config', (req, res) => {
-  res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+  res.json({
+    googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+    telegramActive: isBotActive(),
+    botUsername: process.env.BOT_USERNAME || null
+  });
 });
 
 // Google Identity Services yuborgan ID tokenni tekshirib, foydalanuvchini

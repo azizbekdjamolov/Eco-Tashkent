@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { initSchema } = require('./db');
+const { initTelegramBot } = require('./services/telegramBot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -41,6 +42,7 @@ app.use((err, req, res, next) => {
 
 initSchema()
   .then(() => {
+    initTelegramBot();
     app.listen(PORT, () => console.log(`Eco Tashkent server ${PORT}-portda ishga tushdi`));
   })
   .catch(err => {
