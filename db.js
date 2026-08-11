@@ -86,6 +86,15 @@ async function initSchema() {
       yaratilgan_sana TIMESTAMP DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS login_codes (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      expires_at TIMESTAMP NOT NULL,
+      yaratilgan_sana TIMESTAMP DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS notifications (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,

@@ -30,6 +30,7 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/points', require('./routes/points'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/bot', require('./routes/bot'));
+app.use('/api/stats', require('./routes/stats'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, xizmat: 'Eco Tashkent API' }));
 

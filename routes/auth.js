@@ -78,6 +78,61 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// Telegram orqali kirish kodi: foydalanuvchi avval botga /start bosib
+// (mavjud botdagi /link oqimi orqali) o'z raqamini telegram_chat_id bilan
+// bog'lagan bo'lishi kerak. Bu yerda hech qanday yangi bot integratsiyasi
+// kerak emas — kod shunchaki mavjud "notifications" navbatiga qo'shiladi,
+// botning o'zi uni /bot/notifications/pending orqali olib, foydalanuvchiga
+// yuboradi (u xuddi boshqa bildirishnomalar kabi ishlaydi).
+router.post('/request-code', async (req, res) => {
+  try {
+    const { telefon } = req.body;
+    if (!telefon) return res.status(400).json({ error: 'Telefon raqami shart' });
+    const userRes = await pool.query('SELECT * FROM users WHERE telefon = $1', [telefon]);
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: 'Bu raqam bilan foydalanuvchi topilmadi' });
+    if (!user.telegram_chat_id) {
+      return res.status(409).json({ error: "Hisobingiz Telegram botiga bog'lanmagan. Avval @EcoTashkent_uzBot ga /start bosing va telefon raqamingizni yuboring." });
+    }
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    await pool.query(
+      'INSERT INTO login_codes (user_id, code, expires_at) VALUES ($1, $2, $3)',
+      [user.id, code, expiresAt]
+    );
+    await pool.query(
+      `INSERT INTO notifications (user_id, turi, matn) VALUES ($1, 'login_code', $2)`,
+      [user.id, `Eco Tashkent saytiga kirish kodingiz: ${code}\nKod 5 daqiqa amal qiladi.`]
+    );
+    res.json({ ok: true, message: 'Kod Telegram orqali yuborildi' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server xatosi' });
+  }
+});
+
+router.post('/verify-code', async (req, res) => {
+  try {
+    const { telefon, code } = req.body;
+    if (!telefon || !code) return res.status(400).json({ error: 'Telefon va kod shart' });
+    const userRes = await pool.query('SELECT * FROM users WHERE telefon = $1', [telefon]);
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: 'Foydalanuvchi topilmadi' });
+    const codeRes = await pool.query(
+      `SELECT * FROM login_codes WHERE user_id = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
+       ORDER BY yaratilgan_sana DESC LIMIT 1`,
+      [user.id, code]
+    );
+    const loginCode = codeRes.rows[0];
+    if (!loginCode) return res.status(401).json({ error: "Kod noto'g'ri yoki muddati o'tgan" });
+    await pool.query('UPDATE login_codes SET used = TRUE WHERE id = $1', [loginCode.id]);
+    res.json({ token: signToken(user), user: publicUser(user) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server xatosi' });
+  }
+});
+
 router.get('/me', requireAuth, async (req, res) => {
   const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Topilmadi' });

@@ -5,17 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Eco Tashkent — Buyumlarga ikkinchi hayot</title>
 <link rel="stylesheet" href="css/style.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>
 <header class="topbar"><div id="nav-mount"></div></header>
 
 <section class="hero">
   <div class="container hero-grid">
-    <div>
-      <span class="eyebrow">Toshkent • Buyumlar almashinuvi ekotizimi</span>
-      <h1>Kerak bo'lmagan buyum — <em>kimgadir tilak.</em></h1>
-      <p class="hero-sub">Uy burchagida chang bosib yotgan texnika, mebel, kiyim va kitoblarni bepul bering, almashing yoki xayriya qiling. Yaqin atrofdagi qayta ishlash punktlarini bir xaritada toping.</p>
+    <div class="hero-card">
+      <span class="eyebrow">✨ Toshkentning yagona ekologik ekotizimi</span>
+      <h1>Eski buyumlarga <span class="accent">yangi hayot</span> bering!</h1>
+      <p class="hero-sub">Eco Tashkent orqali foydalanilmayotgan buyumlaringizni tekinga ulashing, almashtiring, yoki eng yaqin ekopunktdagi qayta ishlashga topshirib tabiatni asrang.</p>
+
+      <div class="hero-search">
+        <input type="text" id="hero-q" placeholder="Masalan: kitob javoni, printer, velosiped...">
+        <button class="btn btn-primary" id="hero-search-btn">Izlash →</button>
+      </div>
+      <div class="hero-tags">
+        <span>Ommabop:</span>
+        <button type="button" class="tag-chip" data-tag="Chilonzor">#Chilonzor</button>
+        <button type="button" class="tag-chip" data-tag="Yunusobod">#Yunusobod</button>
+        <button type="button" class="tag-chip" data-tag="Plastik">#Plastik</button>
+        <button type="button" class="tag-chip" data-tag="Mebel">#Mebel</button>
+        <button type="button" class="tag-chip" data-tag="E-waste">#E-waste</button>
+      </div>
+
       <div class="hero-stats">
         <div class="hero-stat"><b id="stat-items">—</b><span>Faol e'lon</span></div>
         <div class="hero-stat"><b id="stat-points">—</b><span>Eko-punkt</span></div>
@@ -26,10 +39,27 @@
         <a href="map.html" class="btn btn-outline">Xaritani ochish</a>
       </div>
     </div>
-    <div class="hero-map-card">
-      <div id="hero-map"></div>
-      <div class="hero-map-label"><span>Eng yaqin eko-punktlar</span><span>Xaritada ko'rish →</span></div>
+
+    <div class="tg-card">
+      <div class="tg-card-head">
+        <span class="eyebrow">Telegram Ekotizim</span>
+        <span class="tg-sync-pill">Faol Bot Sync</span>
+      </div>
+      <p>@EcoTashkent_uzBot ulangan. Barcha e'lonlar, xabarlar va bildirishnomalar telegram orqali sinxronlanadi.</p>
+      <div class="tg-stats">
+        <div class="tg-stat-row"><span>Aktiv Telegram Foydalanuvchilar</span><b id="tg-stat-users">—</b></div>
+        <div class="tg-stat-row"><span>Kunlik So'rovlar</span><b id="tg-stat-daily">—</b></div>
+      </div>
+      <a href="add-item.html" class="btn btn-primary btn-block">+ E'lon Joylashtirish</a>
     </div>
+  </div>
+</section>
+
+<section class="section container">
+  <div class="stat-row">
+    <div class="stat-card"><span class="badge green">♻️</span><div><b id="stat-items-2">—</b><span>Faol e'lonlar</span></div></div>
+    <div class="stat-card"><span class="badge green">🌳</span><div><b id="stat-points-2">—</b><span>Eko-punktlar</span></div></div>
+    <div class="stat-card"><span class="badge blue">🤝</span><div><b>11</b><span>Tuman qamrovi</span></div></div>
   </div>
 </section>
 
@@ -62,7 +92,6 @@
 
 <footer><div class="container">Eco Tashkent • Hackathon 2026 MVP • Toshkentda qayta foydalanish madaniyati uchun</div></footer>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="js/api.js"></script>
 <script src="js/nav.js"></script>
 <script src="js/home.js"></script>

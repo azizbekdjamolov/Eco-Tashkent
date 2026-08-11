@@ -6,6 +6,8 @@ const fq = document.getElementById('f-q');
 const fKategoriya = document.getElementById('f-kategoriya');
 const fTuman = document.getElementById('f-tuman');
 const fTur = document.getElementById('f-tur');
+const heroQ = document.getElementById('hero-q');
+const heroSearchBtn = document.getElementById('hero-search-btn');
 
 let activeKategoriya = '';
 
@@ -30,7 +32,7 @@ function buildFilterOptions() {
     activeKategoriya = activeKategoriya === cat ? '' : cat;
     fKategoriya.value = activeKategoriya;
     [...catStrip.children].forEach(c => c.style.outline = '');
-    if (activeKategoriya) btn.style.outline = '2px solid var(--moss)';
+    if (activeKategoriya) btn.style.outline = '2px solid var(--brand)';
     loadItems();
   });
 }
@@ -66,8 +68,12 @@ function debouncedLoad() {
   debounceTimer = setTimeout(loadItems, 300);
 }
 
+function setStatEls(id, value) {
+  document.querySelectorAll(`[id="${id}"]`).forEach(el => { el.textContent = value; });
+}
+
 async function loadItems() {
-  grid.innerHTML = '<p style="grid-column:1/-1;color:#8a9a8c;">Yuklanmoqda...</p>';
+  grid.innerHTML = '<p style="grid-column:1/-1;color:var(--muted);">Yuklanmoqda...</p>';
   const params = new URLSearchParams();
   if (fq.value.trim()) params.set('q', fq.value.trim());
   if (fKategoriya.value) params.set('kategoriya', fKategoriya.value);
@@ -75,7 +81,8 @@ async function loadItems() {
   if (fTur.value) params.set('tur', fTur.value);
   try {
     const items = await api(`/items?${params.toString()}`);
-    document.getElementById('stat-items').textContent = items.length;
+    setStatEls('stat-items', items.length);
+    setStatEls('stat-items-2', items.length);
     if (!items.length) {
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
         <div class="glyph">🌱</div>
@@ -91,24 +98,38 @@ async function loadItems() {
   }
 }
 
-async function loadHeroMap() {
-  const map = L.map('hero-map', { zoomControl: false, scrollWheelZoom: false }).setView([41.3111, 69.2797], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
-  }).addTo(map);
+async function loadStats() {
   try {
     const points = await api('/points');
-    document.getElementById('stat-points').textContent = points.length;
-    points.forEach(p => {
-      L.circleMarker([p.lat, p.lng], { radius: 7, color: '#2F5233', fillColor: '#C6952B', fillOpacity: 0.9, weight: 2 })
-        .addTo(map)
-        .bindPopup(`<b>${escapeHtml(p.nomi)}</b><br>${escapeHtml(p.material_turlari)}`);
-    });
-  } catch (e) { /* ignore for hero */ }
+    setStatEls('stat-points', points.length);
+    setStatEls('stat-points-2', points.length);
+  } catch (e) { /* ignore */ }
+  try {
+    const s = await api('/stats');
+    document.getElementById('tg-stat-users').textContent = s.telegramFoydalanuvchilar;
+    document.getElementById('tg-stat-daily').textContent = s.bugungiSorovlar;
+  } catch (e) {
+    document.getElementById('tg-stat-users').textContent = '—';
+    document.getElementById('tg-stat-daily').textContent = '—';
+  }
+}
+
+function runHeroSearch() {
+  fq.value = heroQ.value.trim();
+  loadItems();
+  document.getElementById('item-grid').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 buildFilterOptions();
 loadItems();
-loadHeroMap();
+loadStats();
 [fq].forEach(el => el.addEventListener('input', debouncedLoad));
 [fKategoriya, fTuman, fTur].forEach(el => el.addEventListener('change', loadItems));
+if (heroSearchBtn) heroSearchBtn.addEventListener('click', runHeroSearch);
+if (heroQ) heroQ.addEventListener('keydown', (e) => { if (e.key === 'Enter') runHeroSearch(); });
+document.querySelectorAll('.tag-chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    heroQ.value = btn.dataset.tag;
+    runHeroSearch();
+  });
+});

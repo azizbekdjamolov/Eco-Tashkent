@@ -69,7 +69,6 @@
           <button type="button" class="btn btn-outline btn-sm" id="btn-camera">📷 Kamera bilan olish</button>
           <button type="button" class="btn btn-outline btn-sm" id="btn-gallery">🖼️ Galereyadan tanlash</button>
         </div>
-        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
         <input type="file" id="gallery-input" accept="image/*" multiple hidden>
         <div class="photo-preview-grid" id="photo-grid"></div>
         <div class="field-hint">Rasm qo'shsangiz e'loningiz ko'proq e'tibor tortadi.</div>
@@ -108,13 +107,27 @@ const submitBtn = document.getElementById('submit-btn');
 // ---- Photo picker: camera + gallery, merged into one list (max 4) ----
 const MAX_PHOTOS = 4;
 let selectedPhotos = []; // File objects
-const cameraInput = document.getElementById('camera-input');
 const galleryInput = document.getElementById('gallery-input');
 const photoGrid = document.getElementById('photo-grid');
 
+// Some mobile browsers ignore capture="environment" on a re-used <input>
+// (especially after it has fired once) and silently fall back to the
+// gallery picker. Building a brand-new input each time forces the browser
+// to re-evaluate the capture attribute and open the camera app directly.
+function openCameraInput() {
+  const fresh = document.createElement('input');
+  fresh.type = 'file';
+  fresh.accept = 'image/*';
+  fresh.setAttribute('capture', 'environment');
+  fresh.hidden = true;
+  fresh.addEventListener('change', () => { addPhotos(fresh.files); fresh.remove(); });
+  document.body.appendChild(fresh);
+  fresh.click();
+}
+
 document.getElementById('btn-camera').addEventListener('click', () => {
   if (selectedPhotos.length >= MAX_PHOTOS) { err.textContent = `Ko'pi bilan ${MAX_PHOTOS} ta rasm qo'shish mumkin`; err.classList.add('show'); return; }
-  cameraInput.click();
+  openCameraInput();
 });
 document.getElementById('btn-gallery').addEventListener('click', () => {
   if (selectedPhotos.length >= MAX_PHOTOS) { err.textContent = `Ko'pi bilan ${MAX_PHOTOS} ta rasm qo'shish mumkin`; err.classList.add('show'); return; }
@@ -130,7 +143,6 @@ function addPhotos(fileList) {
   }
   renderPhotoGrid();
 }
-cameraInput.addEventListener('change', () => { addPhotos(cameraInput.files); cameraInput.value = ''; });
 galleryInput.addEventListener('change', () => { addPhotos(galleryInput.files); galleryInput.value = ''; });
 
 function renderPhotoGrid() {
