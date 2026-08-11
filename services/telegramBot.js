@@ -1,20 +1,77 @@
 // Eco Tashkent uchun o'rnatilgan Telegram bot.
 //
-// Avvalgi loyihada bot "alohida xizmat" deb rejalashtirilgan edi (faqat
-// /api/bot/* endpointlari orqali ulanadigan), lekin haqiqatda hech qanday
-// bot ishlamagani uchun Telegram orqali kirish kodi hech kimga yetib
-// bormasdi. Endi bot shu server jarayonining o'zida ishlaydi (polling),
-// shuning uchun alohida deploy qilish shart emas — BOT_TOKEN ni .env ga
-// qo'yish kifoya.
+// Kirish oqimi: foydalanuvchi saytda telefon raqamini kiritadi -> sayt
+// bitta bir martalik "token" yaratadi -> foydalanuvchi shu token bilan
+// bot chatiga (https://t.me/<bot>?start=<token>) olib boriladi -> u yerda
+// FAQAT "START" tugmasini bosadi (Telegramning o'zi shuni talab qiladi —
+// botlar odamga oldindan yozmagan chatga xabar yubora olmaydi, shuning
+// uchun bitta bosim baribir kerak) -> bot avtomatik ravishda hisobni
+// telefon raqamiga bog'laydi -> sayt fonda buni kuzatib turib (polling),
+// bog'lanishi bilanoq foydalanuvchini avtomatik tizimga kiritadi.
+// Qo'lda kod terish shart emas.
+const crypto = require('crypto');
 const TelegramBot = require('node-telegram-bot-api');
 const { pool } = require('../db');
 
 let bot = null;
 
+// token -> { telefon, ism, status: 'pending'|'linked', userId, createdAt }
+const pendingLinks = new Map();
+const LINK_TTL_MS = 5 * 60 * 1000;
+
 function normalizePhone(raw) {
   let p = String(raw || '').trim().replace(/[\s-()]/g, '');
   if (p && !p.startsWith('+')) p = '+' + p;
   return p;
+}
+
+function createLinkToken(telefon, ism) {
+  const token = crypto.randomBytes(16).toString('hex');
+  pendingLinks.set(token, { telefon: normalizePhone(telefon), ism: ism || null, status: 'pending', userId: null, createdAt: Date.now() });
+  return token;
+}
+
+// Holatni tekshirish uchun — o'chirmaydi (polling shu bilan ishlaydi).
+function peekLinkStatus(token) {
+  const entry = pendingLinks.get(token);
+  if (!entry) return null;
+  if (Date.now() - entry.createdAt > LINK_TTL_MS) {
+    pendingLinks.delete(token);
+    return null;
+  }
+  return entry;
+}
+
+// "linked" holatidagi tokenni bir martalik iste'mol qilish (qayta ishlatib bo'lmaydi).
+function consumeLinkToken(token) {
+  const entry = peekLinkStatus(token);
+  if (!entry || entry.status !== 'linked') return null;
+  pendingLinks.delete(token);
+  return entry;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of pendingLinks) {
+    if (now - entry.createdAt > LINK_TTL_MS) pendingLinks.delete(token);
+  }
+}, 60 * 1000);
+
+async function linkUserByPhone(telefon, chatId, fallbackName) {
+  const existing = await pool.query('SELECT * FROM users WHERE telefon = $1', [telefon]);
+  if (existing.rows[0]) {
+    const upd = await pool.query(
+      'UPDATE users SET telegram_chat_id = $1 WHERE telefon = $2 RETURNING *',
+      [String(chatId), telefon]
+    );
+    return upd.rows[0];
+  }
+  const created = await pool.query(
+    `INSERT INTO users (ism, telefon, telegram_chat_id, password_hash)
+     VALUES ($1, $2, $3, NULL) RETURNING *`,
+    [fallbackName || 'Telegram foydalanuvchisi', telefon, String(chatId)]
+  );
+  return created.rows[0];
 }
 
 function initTelegramBot() {
@@ -26,12 +83,37 @@ function initTelegramBot() {
 
   bot = new TelegramBot(token, { polling: true });
 
-  bot.onText(/\/start/, (msg) => {
+  // /start yoki /start <link-token>
+  bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
+    const payload = match && match[1] ? match[1].trim() : null;
+
+    if (payload) {
+      const entry = peekLinkStatus(payload);
+      if (!entry) {
+        bot.sendMessage(chatId, "⏱ Havola muddati o'tgan yoki noto'g'ri. Saytga qaytib, qaytadan urinib ko'ring.").catch(() => {});
+        return;
+      }
+      try {
+        const user = await linkUserByPhone(entry.telefon, chatId, entry.ism || msg.from.first_name);
+        entry.status = 'linked';
+        entry.userId = user.id;
+        await bot.sendMessage(
+          chatId,
+          `✅ Xush kelibsiz, ${user.ism}!\n\nHisobingiz (${entry.telefon}) saytga muvaffaqiyatli bog'landi. Saytdagi oynaga qayting — avtomatik tizimga kirasiz.`
+        );
+      } catch (e) {
+        console.error('[telegram] Link tokendan bog\'lashda xatolik:', e.message);
+        bot.sendMessage(chatId, "Xatolik yuz berdi, birozdan keyin qayta urinib ko'ring.").catch(() => {});
+      }
+      return;
+    }
+
+    // Token'siz oddiy /start — telefon raqamini kontakt tugmasi orqali so'raymiz (zaxira usul).
     bot.sendMessage(
       chatId,
       "Assalomu alaykum! 🌱 Eco Tashkent botiga xush kelibsiz.\n\n" +
-      "Saytga Telegram orqali kirish uchun avval telefon raqamingizni tasdiqlang — pastdagi tugmani bosing.",
+      "Saytga Telegram orqali kirish uchun sayt sizni bu yerga avtomatik olib keladi. Agar to'g'ridan-to'g'ri shu yerdan boshlagan bo'lsangiz, telefon raqamingizni tasdiqlang:",
       {
         reply_markup: {
           keyboard: [[{ text: '📱 Raqamni yuborish', request_contact: true }]],
@@ -47,19 +129,10 @@ function initTelegramBot() {
     const telefon = normalizePhone(msg.contact.phone_number);
     if (!telefon) return;
     try {
-      const existing = await pool.query('SELECT id FROM users WHERE telefon = $1', [telefon]);
-      if (existing.rows[0]) {
-        await pool.query('UPDATE users SET telegram_chat_id = $1 WHERE telefon = $2', [String(chatId), telefon]);
-      } else {
-        await pool.query(
-          `INSERT INTO users (ism, telefon, telegram_chat_id, password_hash)
-           VALUES ($1, $2, $3, NULL)`,
-          [msg.contact.first_name || 'Telegram foydalanuvchisi', telefon, String(chatId)]
-        );
-      }
+      const user = await linkUserByPhone(telefon, chatId, msg.contact.first_name);
       await bot.sendMessage(
         chatId,
-        `✅ Raqamingiz (${telefon}) saytga bog'landi!\n\nEndi saytning "Kirish" sahifasida Telegram bo'limidan shu raqamni kiriting — kod shu yerga keladi.`,
+        `✅ Raqamingiz (${telefon}) saytga bog'landi!\n\nEndi saytga qaytib, telefon raqamingizni kiritib, Telegram orqali kiring.`,
         { reply_markup: { remove_keyboard: true } }
       );
     } catch (e) {
@@ -98,7 +171,7 @@ function initTelegramBot() {
   return bot;
 }
 
-// Kirish kodini to'g'ridan-to'g'ri (navbatsiz) yuborish uchun — auth.js shundan foydalanadi.
+// Eski (qo'lda kod) oqimi uchun hali ham kerak — kirish kodini navbatsiz yuborish.
 async function sendLoginCode(chatId, code) {
   if (!bot || !chatId) return false;
   try {
@@ -114,4 +187,11 @@ function isBotActive() {
   return !!bot;
 }
 
-module.exports = { initTelegramBot, sendLoginCode, isBotActive };
+module.exports = {
+  initTelegramBot,
+  sendLoginCode,
+  isBotActive,
+  createLinkToken,
+  peekLinkStatus,
+  consumeLinkToken
+};

@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const { pool } = require('../db');
 const { JWT_SECRET, requireAuth } = require('../middleware/auth');
-const { sendLoginCode: sendTelegramCode, isBotActive } = require('../services/telegramBot');
+const { sendLoginCode: sendTelegramCode, isBotActive, createLinkToken, peekLinkStatus, consumeLinkToken } = require('../services/telegramBot');
 const { sendLoginCodeEmail } = require('../services/email');
 
 const router = express.Router();
@@ -143,6 +143,44 @@ router.post('/verify-code', async (req, res) => {
     if (!loginCode) return res.status(401).json({ error: "Kod noto'g'ri yoki muddati o'tgan" });
     await pool.query('UPDATE login_codes SET used = TRUE WHERE id = $1', [loginCode.id]);
     res.json({ token: signToken(user), user: publicUser(user) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server xatosi' });
+  }
+});
+
+// ---- Telegram bir-bosishli kirish (deep-link) ----
+// Foydalanuvchi /start ni qo'lda bosishi shart, lekin uni qo'lda qidirib
+// yozishi shart emas: sayt token yaratadi -> https://t.me/<bot>?start=<token>
+// ga olib boradi -> u yerda faqat "START" tugmasi bosiladi -> sayt fonda
+// holatni kuzatib, bog'langanini payqashi bilan avtomatik tizimga kiritadi.
+router.post('/telegram-init', async (req, res) => {
+  if (!isBotActive()) {
+    return res.status(503).json({ error: "Telegram bilan kirish serverda sozlanmagan (BOT_TOKEN yo'q)" });
+  }
+  const { telefon, ism } = req.body;
+  if (!telefon) return res.status(400).json({ error: 'Telefon raqami shart' });
+  const botUsername = process.env.BOT_USERNAME || null;
+  if (!botUsername) {
+    return res.status(503).json({ error: "BOT_USERNAME sozlanmagan" });
+  }
+  const token = createLinkToken(telefon, ism);
+  res.json({ token, deepLink: `https://t.me/${botUsername}?start=${token}` });
+});
+
+router.get('/telegram-status/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const entry = peekLinkStatus(token);
+    if (!entry) return res.json({ status: 'expired' });
+    if (entry.status !== 'linked') return res.json({ status: 'pending' });
+
+    const consumed = consumeLinkToken(token);
+    if (!consumed) return res.json({ status: 'expired' });
+    const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [consumed.userId]);
+    const user = userRes.rows[0];
+    if (!user) return res.json({ status: 'expired' });
+    res.json({ status: 'linked', token: signToken(user), user: publicUser(user) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server xatosi' });

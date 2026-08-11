@@ -31,26 +31,23 @@
       </p>
     </div>
 
-    <!-- ---- 2) Telegram: telefon -> bot orqali kod -> kodni tasdiqlash ---- -->
+    <!-- ---- 2) Telegram: telefon -> bitta bosishda avtomatik ro'yxatdan o'tish ---- -->
     <div id="telegram-block" style="display:none;">
+      <div class="field">
+        <label for="tg-ism">Ismingiz</label>
+        <input type="text" id="tg-ism" placeholder="Ism Familiya">
+      </div>
       <div class="field">
         <label for="tg-telefon">Telefon raqamingiz</label>
         <input type="text" id="tg-telefon" placeholder="+998901234567">
         <div class="field-hint" id="tg-hint">
-          Avval Telegramda botga <b>/start</b> bosib, shu telefon raqamni
-          yuboring — bot sizni avtomatik ro'yxatdan o'tkazadi. Shundan keyin
-          shu yerga qaytib kod so'rang.
+          Raqamni kiritib tugmani bosing — Telegram ochiladi, u yerda faqat
+          <b>START</b> tugmasini bosasiz, xolos. Hisobingiz shu zahoti
+          yaratiladi va saytga avtomatik qaytasiz.
         </div>
       </div>
-      <button class="btn btn-primary btn-block" type="button" id="tg-send-btn">Kodni Telegramga yuborish</button>
-
-      <form id="tg-form">
-        <div class="field" id="tg-code-field" style="display:none;margin-top:16px;">
-          <label for="tg-code">Telegramga kelgan kod</label>
-          <input type="text" id="tg-code" inputmode="numeric" maxlength="6" placeholder="000000">
-          <button class="btn btn-primary btn-block" type="submit" style="margin-top:10px;">Tasdiqlash va kirish</button>
-        </div>
-      </form>
+      <button class="btn btn-primary btn-block" type="button" id="tg-send-btn">Telegram orqali ro'yxatdan o'tish</button>
+      <div class="field-hint" id="tg-status" style="display:none;margin-top:12px;text-align:center;"></div>
     </div>
 
     <!-- ---- 3) Email: parol bilan (to'liq) yoki bir martalik kod bilan ---- -->
@@ -190,38 +187,61 @@ function initGoogleButton() {
   });
 }
 
-// ---- 2) Telegram: kod so'rash / tasdiqlash ----
+// ---- 2) Telegram: bitta bosishda avtomatik ro'yxatdan o'tish (deep-link + polling) ----
 const tgSendBtn = document.getElementById('tg-send-btn');
-const tgCodeField = document.getElementById('tg-code-field');
+const tgStatus = document.getElementById('tg-status');
+let tgPollTimer = null;
+let tgPollDeadline = 0;
+
+function stopTgPoll() {
+  if (tgPollTimer) { clearInterval(tgPollTimer); tgPollTimer = null; }
+}
+
 tgSendBtn.addEventListener('click', async () => {
   clearMsgs();
+  stopTgPoll();
+  const ism = document.getElementById('tg-ism').value.trim();
   const telefon = document.getElementById('tg-telefon').value.trim();
   if (!telefon) { showErr('Telefon raqamini kiriting'); return; }
-  tgSendBtn.disabled = true; tgSendBtn.textContent = 'Yuborilmoqda...';
-  try {
-    await api('/auth/request-code', { method: 'POST', body: { telefon } });
-    tgCodeField.style.display = '';
-    showOk('Kod Telegram orqali yuborildi ✅');
-    tgSendBtn.textContent = 'Kod qayta yuborish';
-  } catch (e2) {
-    showErr(e2.message);
-    tgSendBtn.textContent = 'Kodni Telegramga yuborish';
-  }
-  tgSendBtn.disabled = false;
-});
 
-document.getElementById('tg-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  clearMsgs();
-  const telefon = document.getElementById('tg-telefon').value.trim();
-  const code = document.getElementById('tg-code').value.trim();
-  if (!code) { showErr('Kodni kiriting'); return; }
+  const tgWindow = window.open('', '_blank');
+
+  tgSendBtn.disabled = true; tgSendBtn.textContent = 'Ochilmoqda...';
   try {
-    const data = await api('/auth/verify-code', { method: 'POST', body: { telefon, code } });
-    setSession(data.token, data.user);
-    window.location.href = 'index.html';
+    const data = await api('/auth/telegram-init', { method: 'POST', body: { telefon, ism: ism || undefined } });
+    if (tgWindow) tgWindow.location.href = data.deepLink;
+    else window.open(data.deepLink, '_blank');
+
+    tgStatus.style.display = '';
+    tgStatus.textContent = '⏳ Telegramda START tugmasini bosishingizni kutyapmiz...';
+    tgSendBtn.textContent = 'Kutilmoqda...';
+
+    tgPollDeadline = Date.now() + 5 * 60 * 1000;
+    tgPollTimer = setInterval(async () => {
+      if (Date.now() > tgPollDeadline) {
+        stopTgPoll();
+        tgStatus.textContent = "⏱ Vaqt tugadi. Qaytadan urinib ko'ring.";
+        tgSendBtn.disabled = false; tgSendBtn.textContent = "Telegram orqali ro'yxatdan o'tish";
+        return;
+      }
+      try {
+        const s = await api(`/auth/telegram-status/${data.token}`);
+        if (s.status === 'linked') {
+          stopTgPoll();
+          tgStatus.textContent = '✅ Tasdiqlandi! Kirilmoqda...';
+          setSession(s.token, s.user);
+          window.location.href = 'index.html';
+        } else if (s.status === 'expired') {
+          stopTgPoll();
+          tgStatus.textContent = "⏱ Vaqt tugadi. Qaytadan urinib ko'ring.";
+          tgSendBtn.disabled = false; tgSendBtn.textContent = "Telegram orqali ro'yxatdan o'tish";
+        }
+      } catch (e3) { /* vaqtinchalik xato — keyingi urinishda davom etadi */ }
+    }, 1500);
   } catch (e2) {
+    if (tgWindow) tgWindow.close();
     showErr(e2.message);
+    tgSendBtn.disabled = false; tgSendBtn.textContent = "Telegram orqali ro'yxatdan o'tish";
   }
 });
 
@@ -294,12 +314,9 @@ document.getElementById('ec-form').addEventListener('submit', async (e) => {
     siteConfig = await api('/auth/config');
   } catch (e) { /* konfiguratsiya olinmadi — standart qiymatlar bilan davom etamiz */ }
   initGoogleButton();
-  if (siteConfig.botUsername) {
-    document.getElementById('tg-hint').innerHTML =
-      `Avval Telegramda <a href="https://t.me/${siteConfig.botUsername}" target="_blank" style="color:var(--brand);font-weight:700;">@${siteConfig.botUsername}</a> ga <b>/start</b> bosib, shu telefon raqamni yuboring — bot sizni avtomatik ro'yxatdan o'tkazadi. Shundan keyin shu yerga qaytib kod so'rang.`;
-  } else if (!siteConfig.telegramActive) {
-    document.getElementById('tg-hint').innerHTML =
-      "Telegram orqali ro'yxatdan o'tish hozircha serverda sozlanmagan.";
+  if (!siteConfig.telegramActive) {
+    document.getElementById('tg-hint').innerHTML = "Telegram orqali ro'yxatdan o'tish hozircha serverda sozlanmagan.";
+    tgSendBtn.disabled = true;
   }
 })();
 </script>
