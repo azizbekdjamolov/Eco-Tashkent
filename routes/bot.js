@@ -7,15 +7,29 @@ const { requireBotSecret } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireBotSecret);
 
-// Telegram foydalanuvchisini saytdagi profiliga bog'lash (telefon orqali)
+// Telegram foydalanuvchisini saytdagi profiliga bog'lash (telefon orqali).
+// Agar bu telefon bilan hali hech qanday hisob bo'lmasa — saytda "Telegram
+// bilan ro'yxatdan o'tish" ishlashi uchun shu yerda YANGI hisob avtomatik
+// yaratiladi (parolsiz; keyin sayt uning uchun kirish kodini shu chat_id'ga
+// yuboradi, xuddi mavjud foydalanuvchilar kabi).
 router.post('/link', async (req, res) => {
-  const { telefon, telegram_chat_id } = req.body;
+  const { telefon, telegram_chat_id, ism } = req.body;
   if (!telefon || !telegram_chat_id) return res.status(400).json({ error: 'telefon va telegram_chat_id shart' });
-  const result = await pool.query(
-    'UPDATE users SET telegram_chat_id = $1 WHERE telefon = $2 RETURNING id, ism, telefon',
-    [String(telegram_chat_id), telefon]
-  );
-  if (!result.rows[0]) return res.status(404).json({ error: 'Bu telefon raqami bilan foydalanuvchi topilmadi' });
+
+  const existing = await pool.query('SELECT id FROM users WHERE telefon = $1', [telefon]);
+  let result;
+  if (existing.rows[0]) {
+    result = await pool.query(
+      'UPDATE users SET telegram_chat_id = $1 WHERE telefon = $2 RETURNING id, ism, telefon',
+      [String(telegram_chat_id), telefon]
+    );
+  } else {
+    result = await pool.query(
+      `INSERT INTO users (ism, telefon, telegram_chat_id, password_hash)
+       VALUES ($1, $2, $3, NULL) RETURNING id, ism, telefon`,
+      [ism || 'Telegram foydalanuvchisi', telefon, String(telegram_chat_id)]
+    );
+  }
   res.json({ ok: true, user: result.rows[0] });
 });
 
