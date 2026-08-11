@@ -24,7 +24,8 @@ async function initSchema() {
       ism TEXT NOT NULL,
       telefon TEXT UNIQUE,
       email TEXT UNIQUE,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT,
+      google_id TEXT UNIQUE,
       tuman TEXT,
       rol TEXT NOT NULL DEFAULT 'user',
       reyting NUMERIC DEFAULT 5.0,
@@ -33,6 +34,12 @@ async function initSchema() {
       telegram_chat_id TEXT,
       yaratilgan_sana TIMESTAMP DEFAULT NOW()
     );
+
+    -- Eski (avval yaratilgan) bazalarda ustunlar bo'lmasligi mumkin — shuning
+    -- uchun mavjud jadvalni ham moslashtiramiz (Google bilan kirganda parol
+    -- bo'lmaydi, shuning uchun password_hash endi ixtiyoriy):
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
+    ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 
     CREATE TABLE IF NOT EXISTS items (
       id SERIAL PRIMARY KEY,

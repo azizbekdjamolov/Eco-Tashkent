@@ -1,10 +1,12 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const { pool } = require('../db');
 const { JWT_SECRET, requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+const googleClient = process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
 
 function signToken(user) {
   return jwt.sign(
@@ -70,6 +72,9 @@ router.post('/login', async (req, res) => {
     );
     const user = result.rows[0];
     if (!user) return res.status(401).json({ error: 'Foydalanuvchi topilmadi' });
+    if (!user.password_hash) {
+      return res.status(401).json({ error: "Bu hisob Google orqali yaratilgan — parol bilan emas, \"Google bilan kirish\" tugmasidan foydalaning" });
+    }
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Parol noto\'g\'ri' });
     res.json({ token: signToken(user), user: publicUser(user) });
@@ -78,6 +83,7 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ error: 'Server xatosi' });
   }
 });
+
 
 // Telegram orqali kirish kodi: foydalanuvchi avval botga /start bosib
 // (mavjud botdagi /link oqimi orqali) o'z raqamini telegram_chat_id bilan
@@ -131,6 +137,62 @@ router.post('/verify-code', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server xatosi' });
+  }
+});
+
+// Login sahifasi Google tugmasini ko'rsatishdan oldin shu yerdan client_id
+// olib keladi (agar sozlanmagan bo'lsa, tugma butunlay yashiriladi).
+router.get('/config', (req, res) => {
+  res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+});
+
+// Google Identity Services yuborgan ID tokenni tekshirib, foydalanuvchini
+// topadi yoki (birinchi marta kirsa) avtomatik ro'yxatdan o'tkazadi.
+router.post('/google', async (req, res) => {
+  try {
+    if (!googleClient) {
+      return res.status(503).json({ error: "Google bilan kirish serverda sozlanmagan (GOOGLE_CLIENT_ID yo'q)" });
+    }
+    const { credential } = req.body;
+    if (!credential) return res.status(400).json({ error: 'Google credential yo\'q' });
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload();
+    const { sub: googleId, email, name, email_verified } = payload;
+    if (!email || !email_verified) {
+      return res.status(401).json({ error: "Google email tasdiqlanmagan" });
+    }
+
+    // Avval google_id bo'yicha, keyin (bir marta password bilan ro'yxatdan
+    // o'tib, endi Google bilan kirmoqchi bo'lganlar uchun) email bo'yicha izlaymiz.
+    let result = await pool.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+    let user = result.rows[0];
+
+
+    if (!user) {
+      const byEmail = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      if (byEmail.rows[0]) {
+        const upd = await pool.query(
+          'UPDATE users SET google_id = $1 WHERE id = $2 RETURNING *',
+          [googleId, byEmail.rows[0].id]
+        );
+        user = upd.rows[0];
+      } else {
+        const created = await pool.query(
+          `INSERT INTO users (ism, email, google_id, password_hash) VALUES ($1, $2, $3, NULL) RETURNING *`,
+          [name || email.split('@')[0], email, googleId]
+        );
+        user = created.rows[0];
+      }
+    }
+
+    res.json({ token: signToken(user), user: publicUser(user) });
+  } catch (e) {
+    console.error(e);
+    res.status(401).json({ error: "Google token tekshiruvidan o'tmadi" });
   }
 });
 
